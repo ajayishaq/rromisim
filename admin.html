@@ -42,6 +42,12 @@
       const [searchTerm, setSearchTerm] = useState('');
       const [adminPassword, setAdminPassword] = useState('');
       const [loginError, setLoginError] = useState('');
+      const [activeTab, setActiveTab] = useState('orders');
+      const [rates, setRates] = useState([]);
+      const [editingCountry, setEditingCountry] = useState(null);
+      const [editingRate, setEditingRate] = useState('');
+      const [ratesLoading, setRatesLoading] = useState(false);
+      const [ratesError, setRatesError] = useState('');
 
       const BACKEND_BASE = window.location.origin;
       const ADMIN_PASSWORD = 'c1f16784b3a6b39acc534e51e0df3117';
@@ -51,6 +57,7 @@
         if (stored) {
           setIsAuthenticated(true);
           loadData();
+          loadRates();
         }
       }, []);
 
@@ -89,6 +96,58 @@
           console.error(err);
         } finally {
           setLoading(false);
+        }
+      }
+
+      async function loadRates() {
+        setRatesLoading(true);
+        setRatesError('');
+        try {
+          const res = await fetch(`${BACKEND_BASE}/api/admin/rates`, {
+            headers: {
+              'Authorization': `Bearer admin`,
+            },
+          });
+          if (!res.ok) throw new Error('Failed to load rates');
+          const data = await res.json();
+          setRates(data.rates || []);
+        } catch (err) {
+          console.error(err);
+          setRatesError('Failed to load currency rates');
+        } finally {
+          setRatesLoading(false);
+        }
+      }
+
+      async function updateRate() {
+        if (!editingCountry || !editingRate) {
+          setRatesError('Please enter a valid rate');
+          return;
+        }
+
+        const numRate = parseFloat(editingRate);
+        if (isNaN(numRate) || numRate <= 0) {
+          setRatesError('Rate must be a positive number');
+          return;
+        }
+
+        try {
+          const res = await fetch(`${BACKEND_BASE}/api/admin/rates/update`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer admin`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ country: editingCountry, rate: numRate }),
+          });
+          if (!res.ok) throw new Error('Failed to update rate');
+          setRatesError('');
+          setEditingCountry(null);
+          setEditingRate('');
+          await loadRates();
+        } catch (err) {
+          console.error(err);
+          setRatesError('Failed to update rate: ' + err.message);
         }
       }
 
@@ -146,7 +205,28 @@
         ),
 
         React.createElement('main', { className: 'max-w-7xl mx-auto px-6 py-8' },
-          stats && React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-4 gap-4 mb-8' },
+          React.createElement('div', { className: 'flex gap-4 mb-8 border-b border-white/10' },
+            React.createElement('button', {
+              onClick: () => setActiveTab('orders'),
+              className: `px-6 py-3 font-medium transition-colors ${
+                activeTab === 'orders' 
+                  ? 'text-white border-b-2 border-white' 
+                  : 'text-gray-400 hover:text-white'
+              }`
+            }, 'Orders'),
+            React.createElement('button', {
+              onClick: () => { setActiveTab('rates'); if (rates.length === 0) loadRates(); },
+              className: `px-6 py-3 font-medium transition-colors ${
+                activeTab === 'rates' 
+                  ? 'text-white border-b-2 border-white' 
+                  : 'text-gray-400 hover:text-white'
+              }`
+            }, 'Currency Rates')
+          ),
+
+          activeTab === 'orders' && (
+            React.createElement(React.Fragment, null,
+              stats && React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-4 gap-4 mb-8' },
             React.createElement('div', { className: 'bg-white/5 border border-white/10 rounded-xl p-6' },
               React.createElement('div', { className: 'flex items-center justify-between' },
                 React.createElement('div', null,
@@ -245,6 +325,83 @@
                           )
                         )
                       )
+                  )
+                )
+              )
+            )
+          )
+          )
+          ),
+
+          activeTab === 'rates' && (
+            React.createElement(React.Fragment, null,
+              ratesError && React.createElement('div', { className: 'p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 mb-6' }, ratesError),
+              React.createElement('div', { className: 'flex justify-between items-center mb-6' },
+                React.createElement('h2', { className: 'text-2xl font-bold' }, 'Exchange Rates'),
+                React.createElement('button', {
+                  onClick: () => loadRates(),
+                  className: 'px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors'
+                }, 'Refresh')
+              ),
+              ratesLoading ? React.createElement('div', { className: 'text-center py-12 text-gray-400' }, 'Loading rates...') :
+              React.createElement('div', { className: 'border border-white/10 rounded-xl overflow-hidden' },
+                React.createElement('div', { className: 'overflow-x-auto' },
+                  React.createElement('table', { className: 'w-full' },
+                    React.createElement('thead', { className: 'bg-white/5 border-b border-white/10' },
+                      React.createElement('tr', null,
+                        React.createElement('th', { className: 'px-6 py-4 text-left text-sm font-semibold' }, 'Country'),
+                        React.createElement('th', { className: 'px-6 py-4 text-left text-sm font-semibold' }, 'Currency'),
+                        React.createElement('th', { className: 'px-6 py-4 text-left text-sm font-semibold' }, 'Rate (USD = 1)'),
+                        React.createElement('th', { className: 'px-6 py-4 text-left text-sm font-semibold' }, 'Last Updated'),
+                        React.createElement('th', { className: 'px-6 py-4 text-left text-sm font-semibold' }, 'Action')
+                      )
+                    ),
+                    React.createElement('tbody', null,
+                      rates.length === 0 ? 
+                        React.createElement('tr', null,
+                          React.createElement('td', { colSpan: 5, className: 'px-6 py-8 text-center text-gray-400' }, 'No rates found')
+                        ) :
+                        rates.map(rate =>
+                          editingCountry === rate.country ?
+                            React.createElement('tr', { key: rate.country, className: 'border-t border-white/5 bg-white/10' },
+                              React.createElement('td', { className: 'px-6 py-4 text-sm' }, rate.country),
+                              React.createElement('td', { className: 'px-6 py-4 text-sm' }, rate.currency_code),
+                              React.createElement('td', { className: 'px-6 py-4 text-sm' },
+                                React.createElement('input', {
+                                  type: 'number',
+                                  step: '0.01',
+                                  value: editingRate,
+                                  onChange: (e) => setEditingRate(e.target.value),
+                                  className: 'w-full px-3 py-1 bg-white/10 border border-white/20 rounded text-white',
+                                  autoFocus: true
+                                })
+                              ),
+                              React.createElement('td', { className: 'px-6 py-4 text-sm text-gray-400' }, 'Editing...'),
+                              React.createElement('td', { className: 'px-6 py-4 text-sm flex gap-2' },
+                                React.createElement('button', {
+                                  onClick: updateRate,
+                                  className: 'px-3 py-1 bg-green-500/20 text-green-400 rounded hover:bg-green-500/30'
+                                }, 'Save'),
+                                React.createElement('button', {
+                                  onClick: () => { setEditingCountry(null); setEditingRate(''); },
+                                  className: 'px-3 py-1 bg-gray-500/20 text-gray-400 rounded hover:bg-gray-500/30'
+                                }, 'Cancel')
+                              )
+                            ) :
+                            React.createElement('tr', { key: rate.country, className: 'border-t border-white/5 hover:bg-white/2 transition-colors' },
+                              React.createElement('td', { className: 'px-6 py-4 text-sm font-semibold' }, rate.country),
+                              React.createElement('td', { className: 'px-6 py-4 text-sm' }, rate.currency_code),
+                              React.createElement('td', { className: 'px-6 py-4 text-sm font-mono' }, rate.rate.toFixed(4)),
+                              React.createElement('td', { className: 'px-6 py-4 text-sm text-gray-400' }, new Date(rate.updated_at).toLocaleDateString()),
+                              React.createElement('td', { className: 'px-6 py-4 text-sm' },
+                                React.createElement('button', {
+                                  onClick: () => { setEditingCountry(rate.country); setEditingRate(rate.rate.toString()); },
+                                  className: 'px-3 py-1 bg-blue-500/20 text-blue-400 rounded hover:bg-blue-500/30'
+                                }, 'Edit')
+                              )
+                            )
+                        )
+                    )
                   )
                 )
               )
